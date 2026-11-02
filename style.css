@@ -136,6 +136,8 @@ dialog {
   box-shadow: 0 20px 60px rgba(46, 10, 13, .35);
 }
 dialog::backdrop { background: rgba(46, 10, 13, .45); }
+/* Only the form inside scrolls, never the dialog box itself. */
+#dialog { overflow: hidden; }
 #form { padding: 24px; display: grid; gap: 14px; max-height: 88vh; overflow-y: auto; }
 #form label { display: grid; gap: 4px; font-size: .88rem; font-weight: 600; color: var(--maroon); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -190,13 +192,13 @@ legend { font-size: .88rem; font-weight: 600; color: var(--maroon); margin-botto
 
 /* Form extras */
 .segmented { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.segmented label { display: block !important; }
+.segmented label { display: block !important; position: relative; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
 .segmented span { display: inline-block; border: 1px solid var(--rose); border-radius: 999px; padding: 7px 16px; cursor: pointer; font-weight: 600; color: var(--maroon); }
 .segmented input:checked + span { background: var(--maroon); color: var(--cream); border-color: var(--maroon); }
 .segmented input:focus-visible + span { outline: 2px solid var(--maroon); outline-offset: 2px; }
 .segmented.small span { padding: 4px 14px; font-size: .88rem; }
-.seg-label { font-size: .88rem; font-weight: 600; color: var(--maroon); margin-right: 4px; }
+.segmented span.seg-label { font-size: .88rem; font-weight: 600; color: var(--maroon); margin-right: 4px; border: 0; padding: 0; cursor: default; }
 
 .visited-fields { display: grid; gap: 14px; }
 .visited-fields[hidden] { display: none; }
