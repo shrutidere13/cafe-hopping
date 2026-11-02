@@ -78,10 +78,23 @@ const els = {
 };
 
 // Older entries (before status existed) were all visited.
-// Entries saved before multiple photos had a single `photo` field.
+// Each photo is { src, x, y, zoom }: x/y are the crop focus in percent, zoom >= 1.
+// Older entries stored a single `photo` field or plain image strings.
+function toPhoto(p) {
+  return typeof p === 'string' ? { src: p, x: 50, y: 50, zoom: 1 } : { x: 50, y: 50, zoom: 1, ...p };
+}
+
 function normalize(c) {
   const { photo, ...rest } = c;
-  return { status: 'visited', tags: [], ratings: {}, photos: photo ? [photo] : [], ...rest };
+  const n = { status: 'visited', tags: [], ratings: {}, photos: photo ? [photo] : [], ...rest };
+  n.photos = n.photos.map(toPhoto);
+  return n;
+}
+
+// The same CSS crops the card, the form thumbnail and the crop editor, so what
+// you set in the editor is exactly what the card shows.
+function cropStyle(p) {
+  return `object-position:${p.x}% ${p.y}%;transform:scale(${p.zoom});transform-origin:${p.x}% ${p.y}%`;
 }
 
 function escapeHtml(str = '') {
@@ -181,8 +194,8 @@ function breakdownBars(r) {
 
 function galleryHtml(c) {
   if (!c.photos.length) return '';
-  const imgs = c.photos.map((src, i) =>
-    `<img src="${escapeHtml(src)}" alt="${escapeHtml(c.name)} photo ${i + 1}" loading="lazy" data-view="${c.id}" data-index="${i}">`).join('');
+  const imgs = c.photos.map((p, i) =>
+    `<div class="slide"><img src="${escapeHtml(p.src)}" style="${cropStyle(p)}" alt="${escapeHtml(c.name)} photo ${i + 1}" loading="lazy" data-view="${c.id}" data-index="${i}"></div>`).join('');
   const count = c.photos.length > 1 ? `<span class="photo-count">1 / ${c.photos.length}</span>` : '';
   return `<div class="gallery">${imgs}</div>${count}`;
 }
@@ -301,18 +314,19 @@ function resizeImage(file, maxSize = 800) {
 }
 
 function renderPhotoList() {
-  els.photoList.innerHTML = photos.map((src, i) => `
+  els.photoList.innerHTML = photos.map((p, i) => `
     <div class="thumb">
-      <img src="${escapeHtml(src)}" alt="Photo ${i + 1}">
+      <div class="thumb-frame"><img src="${escapeHtml(p.src)}" style="${cropStyle(p)}" alt="Photo ${i + 1}"></div>
       ${i === 0 ? '<span class="cover">Cover</span>' : `<button type="button" class="make-cover" data-cover="${i}" aria-label="Make cover photo">★</button>`}
       <button type="button" class="remove" data-remove="${i}" aria-label="Remove photo ${i + 1}">×</button>
+      <button type="button" class="adjust" data-crop="${i}">✂ Adjust</button>
     </div>`).join('');
   els.photoAdd.hidden = photos.length >= MAX_PHOTOS;
   els.photoCount.textContent = `${photos.length} / ${MAX_PHOTOS}`;
 }
 
 function setPhotos(list) {
-  photos = [...(list || [])];
+  photos = (list || []).map(toPhoto);
   renderPhotoList();
 }
 
@@ -320,23 +334,75 @@ els.photoInput.addEventListener('change', async () => {
   const files = [...els.photoInput.files].slice(0, MAX_PHOTOS - photos.length);
   if (els.photoInput.files.length > files.length) alert(`You can add up to ${MAX_PHOTOS} photos per cafe.`);
   for (const file of files) {
-    try { photos.push(await resizeImage(file)); } catch { alert(`Could not read ${file.name}.`); }
+    try { photos.push(toPhoto(await resizeImage(file))); } catch { alert(`Could not read ${file.name}.`); }
   }
   renderPhotoList();
   els.photoInput.value = '';
 });
 
 els.photoList.addEventListener('click', (e) => {
-  const { remove, cover } = e.target.dataset;
+  const { remove, cover, crop } = e.target.dataset;
+  if (crop !== undefined) return openCropper(Number(crop));
   if (remove !== undefined) photos.splice(Number(remove), 1);
   if (cover !== undefined) photos.unshift(...photos.splice(Number(cover), 1));
   renderPhotoList();
 });
 
+// ---- Crop editor: drag to move, slider to zoom ----
+// Only the x/y/zoom numbers change; the full photo is always kept.
+const cropper = { index: 0, x: 50, y: 50, zoom: 1, drag: null };
+const cropEls = { dialog: $('#cropDialog'), frame: $('#cropFrame'), img: $('#cropImg'), zoom: $('#cropZoom') };
+
+function drawCrop() {
+  cropEls.img.style.cssText = cropStyle(cropper);
+  cropEls.zoom.value = cropper.zoom;
+}
+
+function openCropper(i) {
+  Object.assign(cropper, photos[i], { index: i });
+  cropEls.img.src = photos[i].src;
+  drawCrop();
+  cropEls.dialog.showModal();
+}
+
+// How far (in px) the visible image can travel on each axis at the current zoom.
+function cropTravel() {
+  const W = cropEls.frame.clientWidth, H = cropEls.frame.clientHeight;
+  const { naturalWidth: iw, naturalHeight: ih } = cropEls.img;
+  const s = Math.max(W / iw, H / ih) * cropper.zoom;
+  return { tx: iw * s - W, ty: ih * s - H };
+}
+
+const clamp = (v) => Math.min(100, Math.max(0, v));
+
+cropEls.frame.addEventListener('pointerdown', (e) => {
+  try { cropEls.frame.setPointerCapture(e.pointerId); } catch {}
+  cropper.drag = { px: e.clientX, py: e.clientY, x: cropper.x, y: cropper.y, ...cropTravel() };
+});
+cropEls.frame.addEventListener('pointermove', (e) => {
+  const d = cropper.drag;
+  if (!d) return;
+  // Dragging right reveals more of the left side, so the focus moves left.
+  if (d.tx > 0) cropper.x = clamp(d.x - ((e.clientX - d.px) / d.tx) * 100);
+  if (d.ty > 0) cropper.y = clamp(d.y - ((e.clientY - d.py) / d.ty) * 100);
+  drawCrop();
+});
+['pointerup', 'pointercancel'].forEach((t) => cropEls.frame.addEventListener(t, () => { cropper.drag = null; }));
+
+cropEls.zoom.addEventListener('input', () => { cropper.zoom = Number(cropEls.zoom.value); drawCrop(); });
+$('#cropReset').addEventListener('click', () => { Object.assign(cropper, { x: 50, y: 50, zoom: 1 }); drawCrop(); });
+$('#cropCancel').addEventListener('click', () => cropEls.dialog.close());
+$('#cropDone').addEventListener('click', () => {
+  const round = (v) => Math.round(v * 10) / 10;
+  Object.assign(photos[cropper.index], { x: round(cropper.x), y: round(cropper.y), zoom: cropper.zoom });
+  renderPhotoList();
+  cropEls.dialog.close();
+});
+
 // ---- Full-screen photo viewer ----
 const viewer = { list: [], index: 0 };
 function showViewer() {
-  $('#viewerImg').src = viewer.list[viewer.index];
+  $('#viewerImg').src = viewer.list[viewer.index].src;
   $('#viewerCount').textContent = viewer.list.length > 1 ? `${viewer.index + 1} / ${viewer.list.length}` : '';
   $('#viewerPrev').hidden = $('#viewerNext').hidden = viewer.list.length < 2;
 }
@@ -407,7 +473,7 @@ els.form.addEventListener('submit', async (e) => {
     name: text('name'), location: text('location'), price: f.price.value, mapUrl: text('mapUrl'),
     specialty: text('specialty'), mustTry: text('mustTry'), notes: text('notes'),
     tags: [...new Set([...pickedTags, ...custom])],
-    photos: [...photos],
+    photos: photos.map((p) => ({ ...p })),
     favourite: status === 'visited' ? text('favourite') : '',
     visited: status === 'visited' ? f.visited.value : '',
     with: status === 'visited' ? text('with') : '',

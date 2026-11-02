@@ -279,3 +279,25 @@ body:not(.can-edit) .owner-only { display: none !important; }
 .viewer-nav.prev { left: 12px; top: 50%; transform: translateY(-50%); }
 .viewer-nav.next { right: 12px; top: 50%; transform: translateY(-50%); }
 .viewer-count { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: var(--sand); font-size: .9rem; }
+
+/* Cropped photos: card slides and form thumbnails share the crop CSS */
+.gallery .slide { flex: 0 0 100%; aspect-ratio: 16 / 9; overflow: hidden; scroll-snap-align: start; }
+.gallery .slide img { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
+.thumb { width: 112px; height: auto; }
+.thumb-frame { width: 112px; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; }
+.thumb-frame img { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.thumb .cover { bottom: auto; top: 3px; }
+.thumb .adjust { display: block; width: 100%; margin-top: 4px; background: none; border: 1px solid var(--sand); border-radius: 6px; color: var(--maroon); font: 600 .75rem Inter, sans-serif; padding: 3px 0; cursor: pointer; }
+.thumb .adjust:hover { background: var(--sand); }
+
+/* Crop editor */
+.crop-dialog { width: min(640px, calc(100vw - 24px)); }
+.crop-body { padding: 20px; display: grid; gap: 12px; }
+.crop-body .hint { margin: 0; }
+.crop-frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 10px; background: var(--ink); cursor: grab; touch-action: none; user-select: none; }
+.crop-frame:active { cursor: grabbing; }
+.crop-frame img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.crop-zoom { display: flex; align-items: center; gap: 12px; font-size: .88rem; font-weight: 600; color: var(--maroon); }
+.crop-zoom input { flex: 1; padding: 0; border: 0; background: none; accent-color: var(--maroon); }
+.crop-body .actions { align-items: center; }
+.crop-body #cropReset { margin-right: auto; }
