@@ -24,19 +24,30 @@ const PRESET_TAGS = ['Work-friendly', 'Good WiFi', 'Pet-friendly', 'Date spot', 
 const BREAKDOWN = [['food', 'Food'], ['ambience', 'Ambience'], ['service', 'Service'], ['value', 'Value']];
 const $ = (sel) => document.querySelector(sel);
 
+// Demo mode: on this computer only (localhost), add ?demo to the address to
+// preview the design with sample cafes. Nothing is read from or saved to Firebase.
+const DEMO = ['localhost', '127.0.0.1'].includes(location.hostname)
+  && new URLSearchParams(location.search).has('demo');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const BREWING = '<div class="brewing"><div class="mug"></div>Brewing your cafes…</div>';
+
 const store = {
   async load() {
+    if (DEMO) return (await import('./demo-data.js')).demoCafes;
     const snap = await getDocs(cafesCol);
     return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   },
   async put(cafe) {
+    if (DEMO) return;
     const { id, ...data } = cafe;
     await setDoc(doc(cafesCol, id), data);
   },
   async remove(id) {
+    if (DEMO) return;
     await deleteDoc(doc(cafesCol, id));
   },
   async replaceAll(list) {
+    if (DEMO) return;
     // Firestore batches cap at 500 writes; a personal journal stays well below.
     const batch = writeBatch(db);
     cafes.forEach((c) => batch.delete(doc(cafesCol, c.id)));
@@ -60,6 +71,7 @@ async function attempt(fn) {
 }
 
 let cafes = [];
+let introPlayed = false;
 let user = null;
 let statusFilter = 'all';
 let photos = [];
@@ -200,7 +212,7 @@ function galleryHtml(c) {
   return `<div class="gallery">${imgs}</div>${count}`;
 }
 
-function cardHtml(c) {
+function cardHtml(c, i) {
   const map = safeUrl(c.mapUrl);
   const loc = map
     ? `<a href="${escapeHtml(map)}" target="_blank" rel="noopener">📍 ${escapeHtml(c.location)}</a>`
@@ -211,7 +223,7 @@ function cardHtml(c) {
     ? `<span class="again ${c.goAgain}">${c.goAgain === 'yes' ? '↻ Would go again' : '✕ Wouldn\'t go again'}</span>` : '';
   const meta = isWish ? c.price : [formatDate(c.visited), c.price, c.with && `with ${c.with}`].filter(Boolean).join(' · ');
   return `
-    <article class="card ${isWish ? 'wish' : c.rating === 5 ? 'top' : ''}">
+    <article class="card ${isWish ? 'wish' : c.rating === 5 ? 'top' : ''}" style="--i:${Math.min(i, 12)}">
       ${galleryHtml(c)}
       <div class="card-head">
         <div>
@@ -220,7 +232,7 @@ function cardHtml(c) {
         </div>
         ${score}
       </div>
-      ${isWish ? '' : starString(c.rating)}
+      ${isWish ? '' : `<div>${starString(c.rating)}${c.rating === 5 ? '<span class="stamp">Must revisit!</span>' : ''}</div>`}
       ${isWish ? '' : breakdownBars(c.ratings)}
       <dl class="facts">
         ${fact('Speciality', c.specialty)}
@@ -247,6 +259,12 @@ function render() {
   renderTagFilter();
   const items = visibleCafes();
   els.empty.hidden = cafes.length > 0;
+  // Cards float in one after another the first time the journal opens.
+  if (!introPlayed && items.length) {
+    introPlayed = true;
+    els.list.classList.add('intro');
+    setTimeout(() => els.list.classList.remove('intro'), 2500);
+  }
   els.list.innerHTML = items.map(cardHtml).join('');
   if (cafes.length && !items.length) {
     els.list.innerHTML = '<p class="empty">No cafes match these filters.</p>';
@@ -507,13 +525,34 @@ function pickRandom() {
   } else {
     const c = pool[Math.floor(Math.random() * pool.length)];
     const map = safeUrl(c.mapUrl);
-    els.randomResult.innerHTML = `
+    const reveal = () => {
+      els.randomResult.classList.remove('settled');
+      void els.randomResult.offsetWidth; // restart the pop animation
+      els.randomResult.classList.add('settled');
+      els.randomResult.innerHTML = `
       <h3>${escapeHtml(c.name)}</h3>
       <p class="loc">📍 ${escapeHtml(c.location)}</p>
       ${c.mustTry ? `<p>Order: <b>${escapeHtml(c.mustTry)}</b></p>` : ''}
       <p><span class="badge">${wish.length ? 'From your wishlist' : 'An old favourite'}</span></p>
       ${map ? `<p><a class="btn ghost" href="${escapeHtml(map)}" target="_blank" rel="noopener">Open in Maps</a></p>` : ''}`;
+    };
+    // Shuffle through names like a slot machine before landing on the pick.
+    if (pool.length > 1 && !reducedMotion) {
+      let ticks = 0;
+      els.randomResult.classList.remove('settled');
+      const timer = setInterval(() => {
+        els.randomResult.innerHTML = `<h3>${escapeHtml(pool[ticks % pool.length].name)}</h3><p class="loc">Shuffling…</p>`;
+        if (++ticks > 10) { clearInterval(timer); reveal(); }
+      }, 70);
+    } else {
+      reveal();
+    }
   }
+  document.querySelectorAll('#randomBtn, #rerollBtn').forEach((b) => {
+    b.classList.remove('rolling');
+    void b.offsetWidth;
+    b.classList.add('rolling');
+  });
   if (!els.randomDialog.open) els.randomDialog.showModal();
 }
 
@@ -610,18 +649,10 @@ const gate = $('#gate');
 const gateMsg = $('#gateMsg');
 $('#gateSignIn').addEventListener('click', () => authBtn.click());
 
-onAuthStateChanged(auth, async (u) => {
-  user = u;
-  cafes = [];
-  document.body.classList.toggle('can-edit', !!u);
-  authBtn.textContent = u ? 'Sign out' : 'Sign in';
-  if (!u) {
-    gate.hidden = false;
-    gateMsg.textContent = 'This journal is private. Sign in to open it.';
-    return;
-  }
+async function openJournal() {
   gate.hidden = true;
-  els.list.innerHTML = '<p class="empty">Loading cafes…</p>';
+  els.empty.hidden = true;
+  els.list.innerHTML = BREWING;
   try {
     cafes = (await store.load()).map(normalize);
     render();
@@ -634,4 +665,21 @@ onAuthStateChanged(auth, async (u) => {
       els.list.innerHTML = '<p class="empty">Could not load cafes. Check your internet connection.</p>';
     }
   }
-});
+}
+
+if (DEMO) {
+  document.body.classList.add('can-edit');
+  authBtn.textContent = 'Demo mode';
+  authBtn.disabled = true;
+  openJournal();
+} else {
+  onAuthStateChanged(auth, (u) => {
+    user = u;
+    cafes = [];
+    document.body.classList.toggle('can-edit', !!u);
+    authBtn.textContent = u ? 'Sign out' : 'Sign in';
+    if (u) return openJournal();
+    gate.hidden = false;
+    gateMsg.textContent = 'This journal is private. Sign in to open it.';
+  });
+}
