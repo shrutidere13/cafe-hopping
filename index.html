@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cafe Hopping Journal</title>
+  <meta name="description" content="My personal log of cafes visited, what to try, and how I rated them.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☕</text></svg>">
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <button class="auth-btn" id="authBtn">Sign in</button>
+      <p class="eyebrow">A personal journal</p>
+      <h1>Cafe Hopping</h1>
+      <p class="tagline">Every cup, every crumb, every corner table — rated.</p>
+      <div class="stats owner-only" id="stats"></div>
+    </div>
+  </header>
+
+  <section id="gate" class="wrap gate">
+    <div class="gate-card">
+      <p class="gate-icon" aria-hidden="true">🔒</p>
+      <p id="gateMsg">This journal is private. Sign in to open it.</p>
+      <button class="btn primary" id="gateSignIn">Sign in with Google</button>
+    </div>
+  </section>
+
+  <main class="wrap owner-only">
+    <section id="fame" class="fame" hidden>
+      <h2>Hall of fame</h2>
+      <ol id="fameList"></ol>
+    </section>
+
+    <section class="toolbar" aria-label="Search and filters">
+      <div class="tabs" role="tablist" id="statusTabs">
+        <button role="tab" data-status="all" aria-selected="true">All</button>
+        <button role="tab" data-status="visited" aria-selected="false">Visited</button>
+        <button role="tab" data-status="wishlist" aria-selected="false">Wishlist</button>
+      </div>
+      <input type="search" id="search" placeholder="Search name, area, dish…" aria-label="Search">
+      <select id="sort" aria-label="Sort by">
+        <option value="recent">Newest first</option>
+        <option value="rating">Highest rated</option>
+        <option value="name">Name A–Z</option>
+      </select>
+      <select id="minRating" aria-label="Minimum rating">
+        <option value="0">Any rating</option>
+        <option value="4">4★ and up</option>
+        <option value="3">3★ and up</option>
+      </select>
+      <select id="priceFilter" aria-label="Price">
+        <option value="">Any price</option>
+        <option>₹</option><option>₹₹</option><option>₹₹₹</option><option>₹₹₹₹</option>
+      </select>
+      <select id="tagFilter" aria-label="Tag"><option value="">Any tag</option></select>
+      <div class="toolbar-actions">
+        <button class="btn ghost" id="randomBtn">🎲 Pick for me</button>
+        <button class="btn primary owner-only" id="addBtn">+ Add a cafe</button>
+      </div>
+    </section>
+
+    <section id="list" class="grid" aria-live="polite"></section>
+
+    <p id="empty" class="empty" hidden>
+      No cafes yet. <button class="link owner-only" id="emptyAdd">Add your first cafe</button>
+    </p>
+
+    <section class="backup owner-only">
+      <span>Saved to the cloud. Keep a copy too:</span>
+      <button class="btn ghost" id="exportBtn">Export backup</button>
+      <label class="btn ghost">Import backup<input type="file" id="importFile" accept="application/json" hidden></label>
+    </section>
+  </main>
+
+  <dialog id="dialog">
+    <form id="form" method="dialog" novalidate>
+      <h2 id="formTitle">Add a cafe</h2>
+      <input type="hidden" name="id">
+
+      <div class="segmented" role="radiogroup" aria-label="Status">
+        <label><input type="radio" name="status" value="visited" checked><span>✓ Visited</span></label>
+        <label><input type="radio" name="status" value="wishlist"><span>♡ Wishlist</span></label>
+      </div>
+
+      <label>Cafe name *<input name="name" required maxlength="80"></label>
+      <label>Location *<input name="location" required maxlength="120" placeholder="Area, city (e.g. Bandra, Mumbai)"></label>
+      <div class="row">
+        <label>Price<select name="price">
+          <option value="">—</option><option>₹</option><option>₹₹</option><option>₹₹₹</option><option>₹₹₹₹</option>
+        </select></label>
+        <label>Google Maps link<input type="url" name="mapUrl" placeholder="https://maps.app.goo.gl/…"></label>
+      </div>
+      <label>Their speciality<input name="specialty" maxlength="120" placeholder="e.g. Pour-over coffee, sourdough"></label>
+      <label>Must try here<textarea name="mustTry" rows="2" maxlength="300" placeholder="What should someone order?"></textarea></label>
+
+      <fieldset>
+        <legend>Tags</legend>
+        <div class="chips" id="tagPicker"></div>
+        <input name="customTags" maxlength="120" placeholder="Other tags, comma separated">
+      </fieldset>
+
+      <div id="visitedFields" class="visited-fields">
+        <div class="row">
+          <label>Visited on<input type="date" name="visited"></label>
+          <label>Visited with<input name="with" maxlength="120" placeholder="Friends, family, solo…"></label>
+        </div>
+        <label>My favourite dish<input name="favourite" maxlength="120"></label>
+
+        <fieldset>
+          <legend>Overall rating *</legend>
+          <div class="star-picker big" data-key="rating"></div>
+        </fieldset>
+        <fieldset class="breakdown">
+          <legend>Rating breakdown</legend>
+          <div><span>Food</span><div class="star-picker" data-key="food"></div></div>
+          <div><span>Ambience</span><div class="star-picker" data-key="ambience"></div></div>
+          <div><span>Service</span><div class="star-picker" data-key="service"></div></div>
+          <div><span>Value</span><div class="star-picker" data-key="value"></div></div>
+        </fieldset>
+
+        <div class="segmented small" role="radiogroup" aria-label="Would I go again?">
+          <span class="seg-label">Would I go again?</span>
+          <label><input type="radio" name="goAgain" value="yes"><span>Yes</span></label>
+          <label><input type="radio" name="goAgain" value="no"><span>No</span></label>
+        </div>
+      </div>
+
+      <fieldset>
+        <legend>Photo</legend>
+        <div class="photo-field">
+          <img id="photoPreview" alt="" hidden>
+          <label class="btn ghost">Choose photo<input type="file" id="photoInput" accept="image/*" hidden></label>
+          <button type="button" class="link" id="photoRemove" hidden>Remove</button>
+        </div>
+      </fieldset>
+
+      <label>Notes<textarea name="notes" rows="3" maxlength="600" placeholder="Vibe, seating, wifi…"></textarea></label>
+      <p class="form-error" id="formError" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="cancelBtn">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="randomDialog">
+    <div class="random-body">
+      <p class="eyebrow">Today you're going to…</p>
+      <div id="randomResult"></div>
+      <div class="actions">
+        <button class="btn ghost" id="rerollBtn">🎲 Try again</button>
+        <button class="btn primary" id="randomClose">Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <footer class="wrap footer">Made with ☕ · Cafe Hopping Journal</footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
