@@ -18,6 +18,8 @@ const cafesCol = collection(db, 'cafes');
 
 // Firestore documents max out at 1 MiB; keep well under that.
 const MAX_DOC_CHARS = 900_000;
+const MAX_PHOTOS = 6;
+const MAX_PHOTO_CHARS = 130_000;
 const PRESET_TAGS = ['Work-friendly', 'Good WiFi', 'Pet-friendly', 'Date spot', 'Rooftop', 'Outdoor seating', 'Brunch', 'Desserts'];
 const BREAKDOWN = [['food', 'Food'], ['ambience', 'Ambience'], ['service', 'Service'], ['value', 'Value']];
 const $ = (sel) => document.querySelector(sel);
@@ -60,7 +62,7 @@ async function attempt(fn) {
 let cafes = [];
 let user = null;
 let statusFilter = 'all';
-let photoData = '';
+let photos = [];
 let pickedTags = new Set();
 const pickers = {};
 
@@ -71,13 +73,15 @@ const els = {
   priceFilter: $('#priceFilter'), tagFilter: $('#tagFilter'),
   dialog: $('#dialog'), form: $('#form'), formTitle: $('#formTitle'), formError: $('#formError'),
   visitedFields: $('#visitedFields'), tagPicker: $('#tagPicker'),
-  photoInput: $('#photoInput'), photoPreview: $('#photoPreview'), photoRemove: $('#photoRemove'),
+  photoInput: $('#photoInput'), photoList: $('#photoList'), photoAdd: $('#photoAdd'), photoCount: $('#photoCount'),
   randomDialog: $('#randomDialog'), randomResult: $('#randomResult'),
 };
 
 // Older entries (before status existed) were all visited.
+// Entries saved before multiple photos had a single `photo` field.
 function normalize(c) {
-  return { status: 'visited', tags: [], ratings: {}, ...c };
+  const { photo, ...rest } = c;
+  return { status: 'visited', tags: [], ratings: {}, photos: photo ? [photo] : [], ...rest };
 }
 
 function escapeHtml(str = '') {
@@ -175,6 +179,14 @@ function breakdownBars(r) {
     `<span>${label}</span><span class="bar"><i style="width:${r[k] * 20}%"></i></span><span>${r[k]}</span>`).join('') + '</div>';
 }
 
+function galleryHtml(c) {
+  if (!c.photos.length) return '';
+  const imgs = c.photos.map((src, i) =>
+    `<img src="${escapeHtml(src)}" alt="${escapeHtml(c.name)} photo ${i + 1}" loading="lazy" data-view="${c.id}" data-index="${i}">`).join('');
+  const count = c.photos.length > 1 ? `<span class="photo-count">1 / ${c.photos.length}</span>` : '';
+  return `<div class="gallery">${imgs}</div>${count}`;
+}
+
 function cardHtml(c) {
   const map = safeUrl(c.mapUrl);
   const loc = map
@@ -187,7 +199,7 @@ function cardHtml(c) {
   const meta = isWish ? c.price : [formatDate(c.visited), c.price, c.with && `with ${c.with}`].filter(Boolean).join(' · ');
   return `
     <article class="card ${isWish ? 'wish' : c.rating === 5 ? 'top' : ''}">
-      ${c.photo ? `<img class="photo" src="${escapeHtml(c.photo)}" alt="${escapeHtml(c.name)}" loading="lazy">` : ''}
+      ${galleryHtml(c)}
       <div class="card-head">
         <div>
           <h3>${escapeHtml(c.name)}</h3>
@@ -263,8 +275,9 @@ els.tagPicker.addEventListener('click', (e) => {
   e.target.setAttribute('aria-pressed', String(pickedTags.has(t)));
 });
 
-// ---- Photo (resized in the browser so it stays small) ----
-function resizeImage(file, maxSize = 900, quality = 0.72) {
+// ---- Photos (resized in the browser so all of them fit in one Firestore doc) ----
+// Re-encoding through a canvas also drops EXIF metadata such as GPS location.
+function resizeImage(file, maxSize = 800) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -274,28 +287,76 @@ function resizeImage(file, maxSize = 900, quality = 0.72) {
       canvas.height = Math.round(img.height * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(img.src);
-      resolve(canvas.toDataURL('image/jpeg', quality));
+      let quality = 0.72;
+      let data = canvas.toDataURL('image/jpeg', quality);
+      while (data.length > MAX_PHOTO_CHARS && quality > 0.4) {
+        quality -= 0.08;
+        data = canvas.toDataURL('image/jpeg', quality);
+      }
+      resolve(data);
     };
     img.onerror = reject;
     img.src = URL.createObjectURL(file);
   });
 }
 
-function setPhoto(data) {
-  photoData = data || '';
-  els.photoPreview.src = photoData;
-  els.photoPreview.hidden = !photoData;
-  els.photoRemove.hidden = !photoData;
+function renderPhotoList() {
+  els.photoList.innerHTML = photos.map((src, i) => `
+    <div class="thumb">
+      <img src="${escapeHtml(src)}" alt="Photo ${i + 1}">
+      ${i === 0 ? '<span class="cover">Cover</span>' : `<button type="button" class="make-cover" data-cover="${i}" aria-label="Make cover photo">★</button>`}
+      <button type="button" class="remove" data-remove="${i}" aria-label="Remove photo ${i + 1}">×</button>
+    </div>`).join('');
+  els.photoAdd.hidden = photos.length >= MAX_PHOTOS;
+  els.photoCount.textContent = `${photos.length} / ${MAX_PHOTOS}`;
+}
+
+function setPhotos(list) {
+  photos = [...(list || [])];
+  renderPhotoList();
 }
 
 els.photoInput.addEventListener('change', async () => {
-  const file = els.photoInput.files[0];
-  if (file) {
-    try { setPhoto(await resizeImage(file)); } catch { alert('Could not read that image.'); }
+  const files = [...els.photoInput.files].slice(0, MAX_PHOTOS - photos.length);
+  if (els.photoInput.files.length > files.length) alert(`You can add up to ${MAX_PHOTOS} photos per cafe.`);
+  for (const file of files) {
+    try { photos.push(await resizeImage(file)); } catch { alert(`Could not read ${file.name}.`); }
   }
+  renderPhotoList();
   els.photoInput.value = '';
 });
-els.photoRemove.addEventListener('click', () => setPhoto(''));
+
+els.photoList.addEventListener('click', (e) => {
+  const { remove, cover } = e.target.dataset;
+  if (remove !== undefined) photos.splice(Number(remove), 1);
+  if (cover !== undefined) photos.unshift(...photos.splice(Number(cover), 1));
+  renderPhotoList();
+});
+
+// ---- Full-screen photo viewer ----
+const viewer = { list: [], index: 0 };
+function showViewer() {
+  $('#viewerImg').src = viewer.list[viewer.index];
+  $('#viewerCount').textContent = viewer.list.length > 1 ? `${viewer.index + 1} / ${viewer.list.length}` : '';
+  $('#viewerPrev').hidden = $('#viewerNext').hidden = viewer.list.length < 2;
+}
+function stepViewer(d) {
+  viewer.index = (viewer.index + d + viewer.list.length) % viewer.list.length;
+  showViewer();
+}
+$('#viewerPrev').addEventListener('click', () => stepViewer(-1));
+$('#viewerNext').addEventListener('click', () => stepViewer(1));
+$('#viewerClose').addEventListener('click', () => $('#viewer').close());
+$('#viewer').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') stepViewer(-1);
+  if (e.key === 'ArrowRight') stepViewer(1);
+});
+let touchX = null;
+$('#viewer').addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+$('#viewer').addEventListener('touchend', (e) => {
+  const dx = e.changedTouches[0].clientX - touchX;
+  if (Math.abs(dx) > 40 && viewer.list.length > 1) stepViewer(dx < 0 ? 1 : -1);
+});
 
 // ---- Form ----
 function syncStatusFields() {
@@ -320,7 +381,7 @@ function openForm(cafe, { markVisited = false } = {}) {
   pickedTags = new Set(tags.filter((t) => PRESET_TAGS.includes(t)));
   f.customTags.value = tags.filter((t) => !PRESET_TAGS.includes(t)).join(', ');
   renderTagPicker();
-  setPhoto(cafe?.photo);
+  setPhotos(cafe?.photos);
   syncStatusFields();
   els.dialog.showModal();
   f.name.focus();
@@ -346,7 +407,7 @@ els.form.addEventListener('submit', async (e) => {
     name: text('name'), location: text('location'), price: f.price.value, mapUrl: text('mapUrl'),
     specialty: text('specialty'), mustTry: text('mustTry'), notes: text('notes'),
     tags: [...new Set([...pickedTags, ...custom])],
-    photo: photoData,
+    photos: [...photos],
     favourite: status === 'visited' ? text('favourite') : '',
     visited: status === 'visited' ? f.visited.value : '',
     with: status === 'visited' ? text('with') : '',
@@ -358,7 +419,7 @@ els.form.addEventListener('submit', async (e) => {
   const saved = existing
     ? { ...existing, ...cafe }
     : { ...cafe, id: crypto.randomUUID(), created: Date.now() };
-  if (JSON.stringify(saved).length > MAX_DOC_CHARS) return showError('That photo is too large — try a smaller one.');
+  if (JSON.stringify(saved).length > MAX_DOC_CHARS) return showError('Too many large photos for one cafe — remove one or two and try again.');
 
   const submit = els.form.querySelector('[type=submit]');
   submit.disabled = true;
@@ -392,7 +453,13 @@ function pickRandom() {
 
 // ---- Events ----
 els.list.addEventListener('click', async (e) => {
-  const { edit, visit, delete: del } = e.target.dataset;
+  const { edit, visit, delete: del, view, index } = e.target.dataset;
+  if (view) {
+    viewer.list = cafes.find((c) => c.id === view).photos;
+    viewer.index = Number(index);
+    showViewer();
+    $('#viewer').showModal();
+  }
   if (edit) openForm(cafes.find((c) => c.id === edit));
   if (visit) openForm(cafes.find((c) => c.id === visit), { markVisited: true });
   if (del) {
@@ -403,6 +470,16 @@ els.list.addEventListener('click', async (e) => {
     }
   }
 });
+
+// Keep each card's "2 / 4" badge in sync as you swipe its gallery.
+els.list.addEventListener('scroll', (e) => {
+  const g = e.target;
+  if (!g.classList?.contains('gallery')) return;
+  const badge = g.nextElementSibling;
+  if (badge?.classList.contains('photo-count')) {
+    badge.textContent = `${Math.round(g.scrollLeft / g.clientWidth) + 1} / ${g.children.length}`;
+  }
+}, true);
 
 $('#statusTabs').addEventListener('click', (e) => {
   const s = e.target.dataset.status;

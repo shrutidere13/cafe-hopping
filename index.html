@@ -135,12 +135,12 @@
       </div>
 
       <fieldset>
-        <legend>Photo</legend>
+        <legend>Photos <small id="photoCount" class="muted"></small></legend>
         <div class="photo-field">
-          <img id="photoPreview" alt="" hidden>
-          <label class="btn ghost">Choose photo<input type="file" id="photoInput" accept="image/*" hidden></label>
-          <button type="button" class="link" id="photoRemove" hidden>Remove</button>
+          <div class="thumbs" id="photoList"></div>
+          <label class="btn ghost" id="photoAdd">+ Add photos<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
         </div>
+        <p class="hint">The first photo is the cover. Tap ★ on another to make it the cover.</p>
       </fieldset>
 
       <label>Notes<textarea name="notes" rows="3" maxlength="600" placeholder="Vibe, seating, wifi…"></textarea></label>
@@ -161,6 +161,14 @@
         <button class="btn primary" id="randomClose">Done</button>
       </div>
     </div>
+  </dialog>
+
+  <dialog id="viewer" class="viewer">
+    <button class="viewer-close" id="viewerClose" aria-label="Close">×</button>
+    <button class="viewer-nav prev" id="viewerPrev" aria-label="Previous photo">‹</button>
+    <img id="viewerImg" alt="">
+    <button class="viewer-nav next" id="viewerNext" aria-label="Next photo">›</button>
+    <span class="viewer-count" id="viewerCount"></span>
   </dialog>
 
   <footer class="wrap footer">Made with ☕ · Cafe Hopping Journal</footer>
